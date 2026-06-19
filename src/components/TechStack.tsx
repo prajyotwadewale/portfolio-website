@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { useRef, useMemo, useState, useEffect } from "react";
+import { useRef, useMemo, useState, useEffect, Suspense } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment } from "@react-three/drei";
 import { EffectComposer, N8AO } from "@react-three/postprocessing";
@@ -11,16 +11,15 @@ import {
   RapierRigidBody,
 } from "@react-three/rapier";
 
+
 const textureLoader = new THREE.TextureLoader();
 const imageUrls = [
-  "/images/react2.webp",
-  "/images/next2.webp",
-  "/images/node2.webp",
-  "/images/express.webp",
-  "/images/mongo.webp",
+  "/images/python_logo.png",
+  "/images/java_logo.png",
+  "/images/fastapi_logo.png",
+  "/images/git_logo.png",
+  "/images/langchain_logo.png",
   "/images/mysql.webp",
-  "/images/typescript.webp",
-  "/images/javascript.webp",
 ];
 const textures = imageUrls.map((url) => textureLoader.load(url));
 
@@ -48,10 +47,11 @@ function SphereGeo({
   const api = useRef<RapierRigidBody | null>(null);
 
   useFrame((_state, delta) => {
-    if (!isActive) return;
+    // Guard: api.current may be null on early frames before RigidBody initializes
+    if (!isActive || !api.current) return;
     delta = Math.min(0.1, delta);
     const impulse = vec
-      .copy(api.current!.translation())
+      .copy(api.current.translation())
       .normalize()
       .multiply(
         new THREE.Vector3(
@@ -61,7 +61,7 @@ function SphereGeo({
         )
       );
 
-    api.current?.applyImpulse(impulse, true);
+    api.current.applyImpulse(impulse, true);
   });
 
   return (
@@ -69,7 +69,7 @@ function SphereGeo({
       linearDamping={0.75}
       angularDamping={0.15}
       friction={0.2}
-      position={[r(20), r(20) - 25, r(20) - 10]}
+      position={[r(20), r(20) - 5, r(20) - 10]}
       ref={api}
       colliders={false}
     >
@@ -125,32 +125,30 @@ function Pointer({ vec = new THREE.Vector3(), isActive }: PointerProps) {
 }
 
 const TechStack = () => {
-  const [isActive, setIsActive] = useState(false);
+  // Start as true so spheres are active as soon as section is in view
+  const [isActive, setIsActive] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleScroll = () => {
-      const scrollY = window.scrollY || document.documentElement.scrollTop;
-      const threshold = document
-        .getElementById("work")!
-        .getBoundingClientRect().top;
-      setIsActive(scrollY > threshold);
-    };
-    document.querySelectorAll(".header a").forEach((elem) => {
-      const element = elem as HTMLAnchorElement;
-      element.addEventListener("click", () => {
-        const interval = setInterval(() => {
-          handleScroll();
-        }, 10);
-        setTimeout(() => {
-          clearInterval(interval);
-        }, 1000);
-      });
-    });
-    window.addEventListener("scroll", handleScroll);
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Use IntersectionObserver — works with ScrollSmoother which virtualizes window.scrollY
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          setIsActive(entry.isIntersecting);
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(container);
     return () => {
-      window.removeEventListener("scroll", handleScroll);
+      observer.unobserve(container);
     };
   }, []);
+
   const materials = useMemo(() => {
     return textures.map(
       (texture) =>
@@ -167,15 +165,26 @@ const TechStack = () => {
   }, []);
 
   return (
-    <div className="techstack">
-      <h2> My Techstack</h2>
+    <div
+      className="techstack"
+      ref={containerRef}
+      style={{ backgroundColor: "var(--backgroundColor)" }}
+    >
+      <h2>My Techstack</h2>
 
       <Canvas
         shadows
-        gl={{ alpha: true, stencil: false, depth: false, antialias: false }}
+        gl={{ alpha: true, antialias: false }}
         camera={{ position: [0, 0, 20], fov: 32.5, near: 1, far: 100 }}
         onCreated={(state) => (state.gl.toneMappingExposure = 1.5)}
         className="tech-canvas"
+        style={{
+          width: "100%",
+          height: "100%",
+          position: "absolute",
+          top: 0,
+          left: 0,
+        }}
       >
         <ambientLight intensity={1} />
         <spotLight
@@ -187,23 +196,25 @@ const TechStack = () => {
           shadow-mapSize={[512, 512]}
         />
         <directionalLight position={[0, 5, -4]} intensity={2} />
-        <Physics gravity={[0, 0, 0]}>
-          <Pointer isActive={isActive} />
-          {spheres.map((props, i) => (
-            <SphereGeo
-              key={i}
-              {...props}
-              material={materials[Math.floor(Math.random() * materials.length)]}
-              isActive={isActive}
-            />
-          ))}
-        </Physics>
+        <Suspense fallback={null}>
+          <Physics gravity={[0, 0, 0]}>
+            <Pointer isActive={isActive} />
+            {spheres.map((props, i) => (
+              <SphereGeo
+                key={i}
+                {...props}
+                material={materials[Math.floor(Math.random() * materials.length)]}
+                isActive={isActive}
+              />
+            ))}
+          </Physics>
+        </Suspense>
         <Environment
           files="/models/char_enviorment.hdr"
           environmentIntensity={0.5}
           environmentRotation={[0, 4, 2]}
         />
-        <EffectComposer enableNormalPass={false}>
+        <EffectComposer enableNormalPass={false} multisampling={0} stencilBuffer={false}>
           <N8AO color="#0f002c" aoRadius={2} intensity={1.15} />
         </EffectComposer>
       </Canvas>
